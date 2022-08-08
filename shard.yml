@@ -12,6 +12,10 @@ dependencies:
     version: 0.0.1
   crsfml:
     github: oprypin/crsfml
+
+targets:
+  nks:
+    main: src/nks.cr
 #   pg:
 #     github: will/crystal-pg
 #     version: "~> 0.5"
