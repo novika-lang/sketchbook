@@ -89,8 +89,18 @@ class Stream(T)
   def all(between a : Stream(M), and b : Stream(K), now = false) forall M, K
     Stream(T).new.tap do |output|
       sub output if now
-      a.each { sub output }
-      b.each { unsub output }
+      a_each = uninitialized Stream(M)
+      a_each = a.each do
+        sub output
+        # Unsubscribe until we receive an object from B.
+        a.unsub a_each
+      end
+
+      b.each do
+        unsub output
+        # Subscribe now and close the "loop".
+        a.sub a_each
+      end
     end
   end
 end
