@@ -1,0 +1,23 @@
+name: nks
+version: 0.0.1
+# authors:
+#   - name <email@example.com>
+
+# description: |
+#   Short description of nks
+
+dependencies:
+  novika:
+    github: homonoidian/novika
+    version: 0.0.1
+  crsfml:
+    github: oprypin/crsfml
+#   pg:
+#     github: will/crystal-pg
+#     version: "~> 0.5"
+
+# development_dependencies:
+#   webmock:
+#     github: manastech/webmock.cr
+
+# license: MIT
