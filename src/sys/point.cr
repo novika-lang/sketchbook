@@ -12,6 +12,11 @@ module Sketchbook
       Point.new(x - other.x, y - other.y)
     end
 
+    # Performs component-wise multiplication.
+    def *(other : Point)
+      Point.new(x * other.x, y * other.y)
+    end
+
     # Performs component-wise multiplication by *factor*.
     def *(factor : Number)
       Point.new(x * factor, y * factor)

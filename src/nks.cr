@@ -55,7 +55,7 @@ class Frame < Group
   getter shadow = SF::RectangleShape.new
 
   def req
-    super + padding * 2 + shadow_extra
+    super + Point.new(1, 2) * padding + Point.new(border_width, border_width) * 4
   end
 
   def adopt(child)
@@ -85,7 +85,7 @@ class Frame < Group
 
   # Returns the color of this frame's shadow.
   def shadow_color
-    SF::Color.new(0x90, 0xA4, 0xAE)
+    SF::Color.new(0x00, 0x00, 0x00, 0x30)
   end
 
   # Returns `Point` extra of this frame's shadow.
