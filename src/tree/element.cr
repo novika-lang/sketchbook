@@ -10,17 +10,6 @@ module Sketchbook::Element
     intake.map { |_, event| event }
   end
 
-  # Pumps events from *stream* if they are in bounds
-  # of this element (that is, if this element has mouse
-  # over it).
-  def inbound(stream : Stream({SF::Window, SF::Event}) = intake) : Stream(SF::Event)
-    stream.when do |window, event|
-      mouse = SF::Mouse.get_position(window)
-      mouse_pt = Point.new(mouse.x, mouse.y)
-      mouse_pt.in?(bounds)
-    end.map { |_, event| event }
-  end
-
   # Whether this element is being dragged.
   @dragging = false
 
@@ -89,25 +78,25 @@ module Sketchbook::Element
 
   # Pumps printable characters that the user types with
   # the keyboard from *stream*.
-  def input(stream = inbound) : Stream(Char)
+  def input(stream = events) : Stream(Char)
     stream.when(SF::Event::TextEntered)
       .map(&.unicode.chr)
       .when(&.printable?)
   end
 
   # Pumps mouse pressed events from *stream*.
-  def mouse_press(stream = inbound) : Stream(SF::Event::MouseButtonPressed)
+  def mouse_press(stream = events) : Stream(SF::Event::MouseButtonPressed)
     stream.when(SF::Event::MouseButtonPressed)
   end
 
   # Pumps key events for keys that the user presses/releases
   # from *stream*.
-  def keys(stream = inbound) : Stream(SF::Event::KeyEvent)
+  def keys(stream = events) : Stream(SF::Event::KeyEvent)
     stream.when(SF::Event::KeyEvent)
   end
 
   # Pumps key press events from *stream*.
-  def keypress(stream = inbound) : Stream(SF::Event::KeyPressed)
+  def keypress(stream = events) : Stream(SF::Event::KeyPressed)
     keys(stream).when(SF::Event::KeyPressed)
   end
 
