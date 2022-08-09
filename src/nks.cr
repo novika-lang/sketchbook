@@ -1,264 +1,11 @@
 require "crsfml"
-require "./stream"
+
+require "./sys/*"
+require "./tree/*"
+
+include Sketchbook # TODO
 
 CODE_FONT = SF::Font.from_file("res/cozette.bdf")
-
-record Point, x : Float64, y : Float64 do
-  def +(other : Point)
-    Point.new(x + other.x, y + other.y)
-  end
-
-  def -(other : Point)
-    Point.new(x - other.x, y - other.y)
-  end
-
-  def *(num : Number)
-    Point.new(x * num, y * num)
-  end
-
-  def /(num : Number)
-    Point.new(x / num, y / num)
-  end
-
-  def <=(other : Point)
-    x <= other.x && y <= other.y
-  end
-
-  def max(other : Point)
-    Point.new(Math.max(x, other.x), Math.max(y, other.y))
-  end
-
-  def vec2 : SF::Vector2
-    SF.vector2i(x.to_i, y.to_i)
-  end
-end
-
-record Rect, origin : Point, corner : Point do
-  def includes?(point : Point)
-    origin <= point <= corner
-  end
-
-  def includes?(other : Rect)
-    includes?(other.origin) && includes?(other.corner)
-  end
-
-  def intersects?(other : Rect)
-    r_origin = other.origin
-    r_corner = other.corner
-
-    return false if r_corner.x <= origin.x
-    return false if r_corner.y <= origin.y
-    return false if r_origin.x >= corner.x
-    return false if r_origin.y >= corner.y
-
-    true
-  end
-end
-
-# ---------------------------------------------------------
-
-module Element
-  # Central hub for events coming into this element.
-  #
-  # The window (one that sent the event and the event
-  # itself are pumped.
-  getter intake = Stream({SF::Window, SF::Event}).new
-
-  # Pumps the event part of `intake`.
-  getter events : Stream(SF::Event) do
-    intake.map { |_, event| event }
-  end
-
-  # Pumps events from *stream* if they are in bounds
-  # of this element (that is, if this element has mouse
-  # over it).
-  def inbound(stream : Stream({SF::Window, SF::Event}) = intake) : Stream(SF::Event)
-    stream.when do |window, event|
-      mouse = SF::Mouse.get_position(window)
-      mouse_pt = Point.new(mouse.x, mouse.y)
-      mouse_pt.in?(bounds)
-    end.map { |_, event| event }
-  end
-
-  # Whether this element is being dragged.
-  @dragging = false
-
-  # Pumps booleans for whether the cursor entered or left
-  # this element. This element must be in front of others.
-  def transit(stream = events) : Stream(Bool)
-    stream.when(SF::Event::MouseMoved)
-      .except { @dragging }
-      .map { |event| Point.new(event.x, event.y) }
-      .map { |point| point.in?(bounds) }
-      .uniq
-  end
-
-  # Pumps when cursor enters this element. Only `true`
-  # is pumped.
-  def enter(stream = events) : Stream(Bool)
-    transit(stream).when(&.itself)
-  end
-
-  # Pumps when cursor leaves this element. Only `false`
-  # is pumped.
-  def leave(stream = events) : Stream(Bool)
-    transit(stream).except(&.itself)
-  end
-
-  # Emits mouse position deltas when this element is
-  # being dragged, as per the given event *stream*.
-  #
-  # NOTE: when this element is being dragged, `transit`
-  # events (and therefore `enter` and `leave` events)
-  # are all ignored (because you can drag faster than
-  # the element moves, and so go in/out of its bounds,
-  # leaving it but not finishing the drag).
-  def drag(stream = events) : Stream(Point)
-    grip = nil
-
-    stream.all(
-      # All between mouse PRESS on this frame...
-      between: stream
-        .when(SF::Event::MouseButtonPressed)
-        .when(&.button.left?)
-        .map { |event| Point.new(event.x, event.y) }
-        .when(&.in?(bounds))
-        .each { |point| grip = point - pos }
-        .each { @dragging = true },
-      # ... and mouse RELEASE on this frame...
-      and: stream
-        .when(SF::Event::MouseButtonReleased)
-        .when(&.button.left?)
-        .each { @dragging = false },
-    )
-      # ... for all mouse moved events ...
-      .when(SF::Event::MouseMoved)
-      .map do |event|
-        # ... pump position deltas which take the grip (where
-        # the user initially grabbed this form) into account:
-        Point.new(event.x, event.y) - pos - grip.not_nil!
-      end
-  end
-
-  # Pumps printable characters that the user types with
-  # the keyboard from *stream*.
-  def input(stream = inbound) : Stream(Char)
-    stream.when(SF::Event::TextEntered)
-      .map(&.unicode.chr)
-      .when(&.printable?)
-  end
-
-  # Pumps mouse pressed events from *stream*.
-  def mouse_press(stream = inbound) : Stream(SF::Event::MouseButtonPressed)
-    stream.when(SF::Event::MouseButtonPressed)
-  end
-
-  # Pumps key events for keys that the user presses/releases
-  # from *stream*.
-  def keys(stream = inbound) : Stream(SF::Event::KeyEvent)
-    stream.when(SF::Event::KeyEvent)
-  end
-
-  # Pumps key press events from *stream*.
-  def keypress(stream = inbound) : Stream(SF::Event::KeyPressed)
-    keys(stream).when(SF::Event::KeyPressed)
-  end
-
-  # Holds the size of this frame. Sizes smaller than
-  # the `req`uired size will be ignored.
-  setter size = Point.new(0, 0)
-
-  # :ditto:
-  def size
-    @size.max(req)
-  end
-
-  # Holds the local position (offset from parent) of
-  # this frame.
-  property offset = Point.new(0, 0)
-
-  # Returns the parent element of this element. May be nil
-  # when this element is top-level.
-  property! parent : Group?
-
-  # Whether this element is below others in `parent`. Set
-  # by `parent` automatically.
-  property? tucked = false
-
-  # Returns the global position of this element.
-  #
-  # NOTE: this method is recursive over parent and will fail
-  # at (very) deep element trees.
-  def pos(accum = offset)
-    # Tail recursion is a desperate plea to the optimizer.
-    parent? ? parent.pos(accum + parent.offset) : accum
-  end
-
-  # Returns the minimum required size for this element.
-  abstract def req
-
-  # Returns the *global* bounding rect of this element.
-  def bounds : Rect
-    Rect.new(pos, pos + size)
-  end
-
-  # Returns whether this element is topmost (frontmost)
-  # on Z axis. Returns true if this element has no parent.
-  def frontmost?
-    !tucked?
-  end
-
-  # Brings this element to the top of Z axis of its parent.
-  # Does nothing if this element has no parent.
-  def bring_to_front
-    parent.bring_to_front(self) if parent?
-  end
-
-  # Hook called when this element is added as a child
-  # to an element capable of holding children.
-  def adopted
-  end
-
-  # Renders this element on the screen.
-  def render(target)
-  end
-end
-
-class Group
-  include Element
-
-  # Returns the children of this frame.
-  getter children = [] of Element
-
-  def adopt(child : Element)
-    children.last?.try &.tucked = true
-    children << child
-    child.parent = self
-    child.adopted
-  end
-
-  def req
-    mx = children.max_of? { |child| (child.offset + child.req).x.as(Float64) } || 0f64
-    my = children.max_of? { |child| (child.offset + child.req).y.as(Float64) } || 0f64
-    Point.new(mx, my)
-  end
-
-  # Brings a child *element* to front (so that there is no
-  # child "above" it).
-  #
-  # Does nothing if *element* is not a child of this group.
-  def bring_to_front(element : Element)
-    if children.delete(element)
-      children.last?.try &.tucked = true
-      element.tucked = false
-      children << element
-    end
-  end
-
-  def render(target)
-    children.each &.render(target)
-  end
-end
 
 class CodeEditor
   include Element
@@ -318,7 +65,7 @@ class Frame < Group
 
   # Returns the background color of this frame.
   def bg
-    tucked? ? SF::Color.new(0xBD, 0xBD, 0xBD) : SF::Color.new(0xE0, 0xE0, 0xE0)
+    !focused? ? SF::Color.new(0xBD, 0xBD, 0xBD) : SF::Color.new(0xE0, 0xE0, 0xE0)
   end
 
   # Returns the content padding of this form.
@@ -343,7 +90,7 @@ class Frame < Group
 
   # Returns `Point` extra of this frame's shadow.
   def shadow_extra
-    tucked? ? Point.new(0, 0) : Point.new(1, 2)
+    !focused? ? Point.new(0, 0) : Point.new(1, 2)
   end
 
   def render(target)
@@ -369,7 +116,7 @@ class Frame < Group
   end
 end
 
-class ReplFrame < Frame
+class REPLFrame < Frame
   def initialize
     @editor = CodeEditor.new("")
     intake.sub(@editor.intake)
@@ -390,56 +137,73 @@ class ReplFrame < Frame
 end
 
 class World < Group
-  property sinkhole : Frame?
+  # Sinkhole is the frame which gets all world's events,
+  # except those world handles itself (such as dragging
+  # frames around and changing the sinkhole).
+  #
+  # Sinkhole is by definition in focus (see `Frame#focused?`).
+  getter sinkhole : Frame?
+
+  # :ditto:
+  def sinkhole=(frame : Frame?)
+    frame.try &.focused = true
+    sinkhole.try &.focused = false
+    @sinkhole = frame
+  end
 
   def initialize
+    # When the user types something, and no sinkhole frame
+    # is active, create and adopt a REPL frame under the
+    # mouse cursor.
     intake
+      .when { sinkhole.nil? }
       .when { |_, event| event.is_a?(SF::Event::TextEntered) }
       .each do |(window, event)|
-        next if sinkhole
-
         mouse = SF::Mouse.get_position(window)
         mouse_at = Point.new(mouse.x, mouse.y)
 
-        frame = ReplFrame.new
+        frame = REPLFrame.new
         frame.offset = mouse_at - frame.size/2
-        frame.focused = true
         self.sinkhole = frame
+
         adopt(frame)
-
-        # Cursor is in the frame by definition, so connect
-        # intakes for the first time.
-        intake.sub(frame.intake)
-
-        # Forward it to frame so it's not lost. That's the idea.
-        frame.intake.pump({window, event})
       end
+
+    # Pump events received by world into the sinkhole frame,
+    # when one is available.
+    intake.each do |window, event|
+      (sinkhole || next).intake.pump({window, event})
+    end
   end
 
-  def adopt(child : Frame)
+  def adopt(frame : Frame)
     super
 
-    # When the mouse enters a child, it becomes the focused
-    # child of the world.
-    child.enter
+    # When the mouse enters a frame, unless there is another
+    # sinkhole frame, it becomes the sinkhole frame.
+    frame.enter(stream: events)
       .when { sinkhole.nil? }
       .each do
-        child.focused = true
-        child.bring_to_front
-        intake.sub(child.intake)
-        self.sinkhole = child
+        frame.bring_to_front
+        self.sinkhole = frame
       end
 
-    child.drag
-      .when { !sinkhole.nil? && child.same?(sinkhole) }
-      .each { |delta| child.offset += delta }
+    frame.drag(stream: events)
+      .when { !sinkhole.nil? && frame.same?(sinkhole) }
+      .each { |delta| frame.offset += delta }
 
-    child.leave
-      .when { !sinkhole.nil? && child.same?(sinkhole) }
-      .each do
-        child.focused = false
-        self.sinkhole = nil
-        intake.unsub(child.events)
+    frame.leave(stream: events)
+      .when { !sinkhole.nil? && frame.same?(sinkhole) }
+      .each do |point|
+        # Do not wait for entry: check if mouse is over another
+        # frame and focus immediately. This makes the experience
+        # a bit more enjoyable.
+        self.sinkhole = children.each do |other|
+          next unless point.in?(other.bounds)
+          next unless other.is_a?(Frame)
+          other.focused = true
+          self.sinkhole = other
+        end
       end
   end
 end
