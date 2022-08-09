@@ -1,4 +1,8 @@
-# nks
+# Novika Sketchpad
+
+Crappy crap. For now go here: <https://github.com/homonoidian/novika/tree/rev10/world>
+
+Not private because I live in a sanctioned region.
 
 TODO: Write a description here
 
@@ -7,6 +11,8 @@ TODO: Write a description here
 TODO: Write installation instructions here
 
 ## Usage
+
+No
 
 TODO: Write usage instructions here
 
