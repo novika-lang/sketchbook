@@ -5,7 +5,8 @@ require "./tree/*"
 
 include Sketchbook # TODO
 
-CODE_FONT = SF::Font.from_file("res/cozette.bdf")
+COZETTE = {{read_file("res/cozette.bdf")}}
+CODE_FONT = SF::Font.from_memory(COZETTE.to_slice)
 
 class CodeEditor
   include Element
