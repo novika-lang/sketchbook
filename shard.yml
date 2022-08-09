@@ -8,7 +8,7 @@ version: 0.0.1
 
 dependencies:
   novika:
-    github: homonoidian/novika
+    github: novika-lang/novika
     version: 0.0.1
   crsfml:
     github: oprypin/crsfml
