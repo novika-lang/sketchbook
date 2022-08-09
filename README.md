@@ -1,6 +1,6 @@
 # Novika Sketchpad
 
-Crappy crap. For now go here: <https://github.com/homonoidian/novika/tree/rev10/world>
+Crappy crap. For now go here: <https://github.com/novika-lang/novika/tree/rev10/world>
 
 Not private because I live in a sanctioned region.
 
