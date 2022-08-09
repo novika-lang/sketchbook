@@ -210,8 +210,13 @@ end
 
 # ---------------------------------------------------------
 
+ICON = {{read_file("./res/icon.bmp")}}
+
 window = SF::RenderWindow.new(SF::VideoMode.new(1000, 1000), title: "Novika Sketchbook", settings: SF::ContextSettings.new(depth: 24, antialiasing: 8))
 window.framerate_limit = 60
+
+icon = SF::Image.from_memory(ICON.to_slice)
+window.set_icon(64, 64, icon.pixels_ptr)
 
 world = World.new
 
