@@ -80,10 +80,14 @@ module Element
     end.map { |_, event| event }
   end
 
+  # Whether this element is being dragged.
+  @dragging = false
+
   # Pumps booleans for whether the cursor entered or left
   # this element. This element must be in front of others.
   def transit(stream = events) : Stream(Bool)
     stream.when(SF::Event::MouseMoved)
+      .except { @dragging }
       .map { |event| Point.new(event.x, event.y) }
       .map { |point| point.in?(bounds) }
       .uniq
@@ -101,22 +105,31 @@ module Element
     transit(stream).except(&.itself)
   end
 
-  # Emits mouse position deltas when this element
-  # is being dragged.
-  getter drag : Stream(Point) do
+  # Emits mouse position deltas when this element is
+  # being dragged, as per the given event *stream*.
+  #
+  # NOTE: when this element is being dragged, `transit`
+  # events (and therefore `enter` and `leave` events)
+  # are all ignored (because you can drag faster than
+  # the element moves, and so go in/out of its bounds,
+  # leaving it but not finishing the drag).
+  def drag(stream = events) : Stream(Point)
     grip = nil
 
-    events.all(
+    stream.all(
       # All between mouse PRESS on this frame...
-      between: inbound
+      between: stream
         .when(SF::Event::MouseButtonPressed)
         .when(&.button.left?)
         .map { |event| Point.new(event.x, event.y) }
-        .each { |point| grip = point - pos },
+        .when(&.in?(bounds))
+        .each { |point| grip = point - pos }
+        .each { @dragging = true },
       # ... and mouse RELEASE on this frame...
-      and: inbound
+      and: stream
         .when(SF::Event::MouseButtonReleased)
-        .when(&.button.left?),
+        .when(&.button.left?)
+        .each { @dragging = false },
     )
       # ... for all mouse moved events ...
       .when(SF::Event::MouseMoved)
@@ -221,7 +234,6 @@ class Group
     children.last?.try &.tucked = true
     children << child
     child.parent = self
-    intake.sub(child.intake)
     child.adopted
   end
 
@@ -295,10 +307,6 @@ class Frame < Group
   # Returns the shadow shape of this frame.
   getter shadow = SF::RectangleShape.new
 
-  def initialize
-    drag.when { focused? }.each { |delta| self.offset += delta }
-  end
-
   def req
     super + padding * 2 + shadow_extra
   end
@@ -363,8 +371,8 @@ end
 
 class ReplFrame < Frame
   def initialize
-    super
     @editor = CodeEditor.new("")
+    intake.sub(@editor.intake)
     adopt(@editor)
   end
 
@@ -382,37 +390,57 @@ class ReplFrame < Frame
 end
 
 class World < Group
+  property sinkhole : Frame?
+
   def initialize
     intake
       .when { |_, event| event.is_a?(SF::Event::TextEntered) }
       .each do |(window, event)|
+        next if sinkhole
+
         mouse = SF::Mouse.get_position(window)
         mouse_at = Point.new(mouse.x, mouse.y)
-        unless locked?
-          frame = ReplFrame.new
-          frame.offset = mouse_at - frame.size/2
-          frame.focused = true
-          adopt(frame)
-          # Forward it to frame so it's not lost. That's the idea.
-          frame.intake.pump({window, event})
-        end
+
+        frame = ReplFrame.new
+        frame.offset = mouse_at - frame.size/2
+        frame.focused = true
+        self.sinkhole = frame
+        adopt(frame)
+
+        # Cursor is in the frame by definition, so connect
+        # intakes for the first time.
+        intake.sub(frame.intake)
+
+        # Forward it to frame so it's not lost. That's the idea.
+        frame.intake.pump({window, event})
       end
   end
 
   def adopt(child : Frame)
     super
-    child.enter(stream: events).each do
-      next if locked?
-      child.focused = true
-      child.bring_to_front
-    end
-    child.leave(stream: events).each do
-      child.focused = false
-    end
-  end
 
-  def locked?
-    children.any? { |child| child.is_a?(Frame) && child.focused? }
+    # When the mouse enters a child, it becomes the focused
+    # child of the world.
+    child.enter
+      .when { sinkhole.nil? }
+      .each do
+        child.focused = true
+        child.bring_to_front
+        intake.sub(child.intake)
+        self.sinkhole = child
+      end
+
+    child.drag
+      .when { !sinkhole.nil? && child.same?(sinkhole) }
+      .each { |delta| child.offset += delta }
+
+    child.leave
+      .when { !sinkhole.nil? && child.same?(sinkhole) }
+      .each do
+        child.focused = false
+        self.sinkhole = nil
+        intake.unsub(child.events)
+      end
   end
 end
 
